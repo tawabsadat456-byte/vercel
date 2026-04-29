@@ -1619,7 +1619,7 @@ function printFileSizeBreakdown(files: Map<string, number>): void {
     .slice(0, 10);
 
   if (sortedDeps.length > 0) {
-    output.print(chalk.yellow('  Large dependencies:\n'));
+    output.print(chalk.yellow('Large dependencies:\n'));
     for (const [dep, size] of sortedDeps) {
       if (size >= 0.5) {
         // Only show files >= 500KB
@@ -1694,6 +1694,13 @@ async function analyzeVcConfigFiles(
     for (const result of approachingLimitFunctions) {
       printFunctionWithBreakdown(result, 'yellow');
     }
+  }
+
+  if (
+    exceededFunctions.length === 0 &&
+    approachingLimitFunctions.length === 0
+  ) {
+    output.print(chalk.green(`✓ All functions are within safe size limits.\n`));
   }
 
   // Throw error after printing all output if any functions exceeded the limit
