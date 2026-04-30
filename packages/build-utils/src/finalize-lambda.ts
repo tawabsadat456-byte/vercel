@@ -7,6 +7,7 @@ import { getLambdaEnvironment } from './process-serverless/get-lambda-environmen
 import { getLambdaSupportsStreaming } from './process-serverless/get-lambda-supports-streaming';
 import { sha256 } from './fs/stream-to-digest-async';
 import { collectUncompressedSize } from './collect-uncompressed-size';
+import { createHash } from 'node:crypto';
 
 /**
  * Optional wrapper around async work, allowing callers to inject tracing
@@ -24,14 +25,16 @@ const defaultTrace: TraceFn = (_name, fn) => fn();
  * Result of a custom ZIP creation strategy.
  */
 export interface CreateZipResult {
-  /** The zip as a Buffer (in-memory), or null for disk-based paths. */
-  buffer: Buffer | null;
-  /** Path to the zip file on disk, or undefined for in-memory. */
-  zipPath?: string;
   /** SHA-256 hex digest of the zip contents. */
   digest: string;
-  /** Compressed size in bytes. */
-  size: number;
+  getZipData: () => Promise<{
+    /** Compressed size in bytes */
+    size: number;
+    /** The zip as a Buffer (in-memory), or null for disk-based paths. */
+    buffer: Buffer | null;
+    /** Path to the zip file on disk, or undefined for in-memory. */
+    zipPath?: string;
+  }>;
 }
 
 /**
@@ -55,27 +58,19 @@ export interface FinalizeLambdaParams {
   trace?: TraceFn;
   /** Custom ZIP creation strategy. Defaults to in-memory lambda.createZip(). */
   createZip?: CreateZipFn;
-  /**
-   * Called after ZIP creation but before digest/environment/streaming.
-   * Throw to abort (e.g. size validation). For the default in-memory path,
-   * this runs before sha256.
-   */
-  validateZip?: (zip: {
-    buffer: Buffer | null;
-    zipPath?: string;
-    size: number;
-  }) => void;
 }
 
 export interface FinalizeLambdaResult {
-  /** The zip as a Buffer, or null when a custom createZip returns a disk path. */
-  buffer: Buffer | null;
-  /** Path to zip on disk (set by custom createZip), null for in-memory. */
-  zipPath: string | null;
   /** SHA-256 hex digest. */
   digest: string;
-  /** Compressed size in bytes. */
-  size: number;
+  getZipData: () => Promise<{
+    /** Compressed size in bytes */
+    size: number;
+    /** The zip as a Buffer (in-memory), or null for disk-based paths. */
+    buffer: Buffer | null;
+    /** Path to the zip file on disk, or undefined for in-memory. */
+    zipPath?: string;
+  }>;
   uncompressedBytes: number;
   /** Non-fatal streaming detection error, if any. Caller decides how to log. */
   streamingError?: SupportsStreamingResult['error'];
@@ -88,7 +83,6 @@ export interface FinalizeLambdaResult {
  * 1. Injects encrypted env file into lambda.files when provided
  * 2. Collects uncompressed size when enabled
  * 3. Creates the ZIP (in-memory or via custom strategy)
- * 4. Runs optional validateZip hook (e.g. size check)
  * 5. Computes SHA-256 digest (default path only; custom path provides its own)
  * 6. Merges environment variables (bytecode caching, helpers, etc.)
  * 7. Detects streaming support
@@ -108,7 +102,6 @@ export async function finalizeLambda(
     enableUncompressedLambdaSizeCheck,
     trace = defaultTrace,
     createZip: createZipOverride,
-    validateZip,
   } = params;
 
   // 1. Encrypted env injection
@@ -149,30 +142,35 @@ export async function finalizeLambda(
       () => createZipOverride(lambda),
       zipTags
     );
+  } else if (
+    lambda.files &&
+    Object.values(lambda.files).every(file => file.contentHash != null)
+  ) {
+    let digest = createHash('sha256');
+
+    for (const file of Object.values(lambda.files)) {
+      digest.update(file.contentHash!);
+    }
+
+    let buffer: Buffer | undefined = undefined;
+    zipResult = {
+      digest: digest.digest('hex'),
+      async getZipData() {
+        if (!buffer) {
+          buffer = await trace('createZip', () => lambda.createZip(), zipTags);
+        }
+        return { buffer, size: buffer.byteLength };
+      },
+    };
   } else {
     // Default in-memory path: create buffer first, digest deferred to step 5
     const buffer =
       lambda.zipBuffer ||
       (await trace('createZip', () => lambda.createZip(), zipTags));
     zipResult = {
-      buffer,
-      digest: '', // computed in step 5
-      size: buffer.byteLength,
+      digest: sha256(buffer),
+      getZipData: async () => ({ buffer, size: buffer.byteLength }),
     };
-  }
-
-  // 4. Optional validation (e.g. size check)
-  if (validateZip) {
-    validateZip({
-      buffer: zipResult.buffer,
-      zipPath: zipResult.zipPath,
-      size: zipResult.size,
-    });
-  }
-
-  // 5. Digest (deferred for default path so validateZip can abort first)
-  if (!createZipOverride && zipResult.buffer) {
-    zipResult.digest = sha256(zipResult.buffer);
   }
 
   // 6. Lambda environment
@@ -180,7 +178,7 @@ export async function finalizeLambda(
     ...lambda.environment,
     ...getLambdaEnvironment(
       lambda,
-      zipResult.buffer ?? { byteLength: zipResult.size },
+      { byteLength: 0 }, // <---
       bytecodeCachingOptions
     ),
   };
@@ -193,10 +191,8 @@ export async function finalizeLambda(
   lambda.supportsResponseStreaming = streamingResult.supportsStreaming;
 
   return {
-    buffer: zipResult.buffer,
-    zipPath: zipResult.zipPath ?? null,
     digest: zipResult.digest,
-    size: zipResult.size,
+    getZipData: zipResult.getZipData,
     uncompressedBytes,
     streamingError: streamingResult.error,
   };
