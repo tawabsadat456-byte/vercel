@@ -6,9 +6,15 @@ import input from '@inquirer/input';
 import password from '@inquirer/password';
 import search from '@inquirer/search';
 import select from '@inquirer/select';
+import { join } from 'node:path';
 import { EventEmitter } from 'events';
 import { URL } from 'url';
+import type * as Schema from '@effect/schema/Schema';
 import type { VercelConfig } from '@vercel/client';
+import {
+  readConfigFile as readSharedConfigFile,
+  writeConfigFile as writeSharedConfigFile,
+} from '@vercel/cli-config';
 import retry, {
   type RetryFunction,
   type Options as RetryOptions,
@@ -43,6 +49,7 @@ import sleep from './sleep';
 import type * as tty from 'tty';
 import output from '../output-manager';
 import { processTokenResponse, refreshTokenRequest } from './oauth';
+import getGlobalPathConfig from './config/global-path';
 
 const isSAMLError = (v: any): v is SAMLError => {
   return v && v.saml;
@@ -258,6 +265,38 @@ export default class Client extends EventEmitter implements Stdio {
     this.writeToConfigFile();
 
     output.debug('Tokens refreshed successfully.');
+  }
+
+  getGlobalPathConfig(): string {
+    return getGlobalPathConfig(this.argv.slice(2));
+  }
+
+  async readConfig<S extends Schema.Schema.AnyNoContext>(
+    fileName: string,
+    schema: S
+  ): Promise<Schema.Schema.Type<S>> {
+    const filePath = join(this.getGlobalPathConfig(), fileName);
+    return readSharedConfigFile(filePath, schema);
+  }
+
+  async maybeReadConfig<S extends Schema.Schema.AnyNoContext>(
+    fileName: string,
+    schema: S
+  ): Promise<Schema.Schema.Type<S> | null> {
+    try {
+      return await this.readConfig(fileName, schema);
+    } catch {
+      return null;
+    }
+  }
+
+  async writeConfig<S extends Schema.Schema.AnyNoContext>(
+    fileName: string,
+    schema: S,
+    value: Schema.Schema.Type<S>
+  ): Promise<void> {
+    const filePath = join(this.getGlobalPathConfig(), fileName);
+    writeSharedConfigFile(filePath, schema, value);
   }
 
   updateConfig(config: Partial<GlobalConfig>) {

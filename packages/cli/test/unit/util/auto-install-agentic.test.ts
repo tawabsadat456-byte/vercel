@@ -1,6 +1,10 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { KNOWN_AGENTS } from '@vercel/detect-agent';
 import {
+  autoInstallVercelPlugin,
   buildClaudeActionRequiredMessage,
   buildClaudePromptCopy,
   buildClaudePluginMigrationPlan,
@@ -8,6 +12,7 @@ import {
   comparePluginVersions,
   getPluginTargetForAgent,
 } from '../../../src/util/agent/auto-install-agentic';
+import { client } from '../../mocks/client';
 
 describe('comparePluginVersions', () => {
   it('compares dot-separated versions', () => {
@@ -236,5 +241,21 @@ describe('buildClaudeActionRequiredMessage', () => {
       'claude plugins install vercel@claude-plugins-official'
     );
     expect(message).toContain('claude plugins uninstall vercel-plugin@vercel');
+  });
+});
+
+describe('autoInstallVercelPlugin', () => {
+  it('swallows unreadable prefs files', async () => {
+    const configDir = await mkdtemp(join(tmpdir(), 'vercel-cli-agent-prefs-'));
+
+    try {
+      client.setArgv('--global-config', configDir);
+      client.agentName = KNOWN_AGENTS.CODEX;
+      await writeFile(join(configDir, 'agent-preferences.json'), '{', 'utf8');
+
+      await expect(autoInstallVercelPlugin(client)).resolves.toBeUndefined();
+    } finally {
+      await rm(configDir, { recursive: true, force: true });
+    }
   });
 });

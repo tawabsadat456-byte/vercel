@@ -728,7 +728,14 @@ async function handleInitDeployment(
       return 0;
     }
 
-    return printDeploymentStatus(deployment, deployStamp, noWait, false, true);
+    return printDeploymentStatus(
+      client,
+      deployment,
+      deployStamp,
+      noWait,
+      false,
+      true
+    );
   } catch (err: unknown) {
     if (isError(err)) {
       debug(`Error: ${err}\n${err.stack}`);
@@ -1904,7 +1911,13 @@ async function handleDefaultDeploy(
 
   const { isAgent } = await determineAgent();
   const guidanceMode = parsedArguments.flags['--guidance'] ?? isAgent;
-  return printDeploymentStatus(deployment, deployStamp, noWait, guidanceMode);
+  return printDeploymentStatus(
+    client,
+    deployment,
+    deployStamp,
+    noWait,
+    guidanceMode
+  );
 }
 
 function handleCreateDeployError(error: Error, localConfig: VercelConfig) {
@@ -2103,6 +2116,7 @@ async function handleContinueDeployment({
 
         if (noWait) {
           return printDeploymentStatus(
+            client,
             finalDeployment,
             deployStamp,
             noWait,
@@ -2160,7 +2174,13 @@ async function handleContinueDeployment({
       return 1;
     }
 
-    return printDeploymentStatus(finalDeployment, deployStamp, noWait, false);
+    return printDeploymentStatus(
+      client,
+      finalDeployment,
+      deployStamp,
+      noWait,
+      false
+    );
   } catch (err: unknown) {
     output.stopSpinner();
     if (isError(err)) {

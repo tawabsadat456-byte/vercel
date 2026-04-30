@@ -2,13 +2,13 @@ import path from 'path';
 import { existsSync } from 'fs';
 import { InvalidLocalConfig } from '../errors-ts';
 import { ConflictingConfigFiles } from '../errors-ts';
-import getArgs from '../../util/get-args';
+import { parseArguments } from '../../util/get-args';
 import { VERCEL_DIR } from '../projects/link';
 import { isVercelTomlEnabled } from '../is-vercel-toml-enabled';
 
 export default function getLocalPathConfig(prefix: string) {
-  const argv = getArgs(process.argv.slice(2), {}, { permissive: true });
-  const customPath = argv['--local-config'];
+  const argv = parseArguments(process.argv.slice(2), {}, { permissive: true });
+  const customPath = argv.flags['--local-config'];
 
   // If `--local-config` flag was specified, then that takes priority
   if (customPath) {

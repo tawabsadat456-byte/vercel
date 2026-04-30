@@ -59,7 +59,7 @@ import getGlobalPathConfig from './util/config/global-path';
 import {
   defaultAuthConfig,
   defaultGlobalConfig,
-} from './util/config/get-default';
+} from '@vercel/cli-config';
 import * as ERRORS from './util/errors-ts';
 import { APIError } from './util/errors-ts';
 import getUpdateCommand from './util/get-update-command';
